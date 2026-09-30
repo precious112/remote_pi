@@ -99,9 +99,11 @@ IDS:
   (list-workspaces) when you need the folder on disk.
 
 FLAGS:
-  --enter         (send only) press Enter right after the text, as a separate
-                  keystroke. Same as `send …` followed by `send-key … Enter`,
-                  in one call.
+  --enter         (send only) press Enter after the text, as a separate
+                  keystroke sent 0.4s later so the program in the tab has
+                  taken the text first (otherwise TUIs like Codex turn it
+                  into a newline). Same as `send …`, a short pause, then
+                  `send-key … Enter`, in one call.
   --focused       target the tab you are LOOKING AT, whatever it is. Resolved by
                   the app, so no id to copy. Works from outside a Cockpit
                   terminal too (dictation tools, scripts): with no env inherited

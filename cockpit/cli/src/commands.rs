@@ -14,6 +14,14 @@ use crate::util::{basename, die, pad, resolve_path, self_tab_id};
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Timeout folgado: o app corta a query em 30s; a folga cobre fila + IO.
 const DB_TIMEOUT: Duration = Duration::from_secs(60);
+/// Pause between the text and the Enter of `send --enter`. The app answers the
+/// first write as soon as the bytes reach the PTY, not when the program in the
+/// tab has handled them. A TUI still processing the text (a long prompt as a
+/// paste burst in Claude Code; any prompt in Codex) takes an Enter that arrives
+/// right after as part of the input, so it becomes a newline instead of a
+/// submit. `scripts/cockpit-dispatch.sh` sleeps 0.4s before Enter for the same
+/// reason.
+const ENTER_DELAY: Duration = Duration::from_millis(400);
 
 fn b64() -> base64::engine::general_purpose::GeneralPurpose {
     base64::engine::general_purpose::STANDARD
@@ -45,7 +53,9 @@ pub fn send(args: &[String]) -> ! {
     // já fazia à mão com `send` + `send-key Enter` — a flag só evita a segunda
     // chamada. A resposta da primeira é aguardada antes da segunda, então a
     // ordem é garantida.
+    // Order is not enough, though: see [ENTER_DELAY].
     if parsed.enter {
+        std::thread::sleep(ENTER_DELAY);
         write_once(&tab_id, "\r");
     }
     std::process::exit(0)
@@ -1760,6 +1770,15 @@ pub fn exec(args: &[String]) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn enter_waits_for_the_tui_to_take_the_text() {
+        // Regression guard: without a pause, Codex (and Claude Code on long
+        // prompts) turn the Enter into a newline. Same floor as the 0.4s in
+        // scripts/cockpit-dispatch.sh.
+        assert!(ENTER_DELAY >= Duration::from_millis(400));
+        assert!(ENTER_DELAY <= Duration::from_secs(1), "keep `send` snappy");
+    }
 
     #[test]
     fn formata_list_tabs() {
