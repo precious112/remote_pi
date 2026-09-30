@@ -1,0 +1,93 @@
+# Fork-only helper: builds an ad-hoc signed Intel Cockpit from any branch for
+# local testing, after running format, analyze and tests. Not part of any PR.
+name: cockpit-dev-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch to build"
+        required: true
+        default: opencode-turn-status
+
+jobs:
+  macos-intel:
+    runs-on: macos-15-intel
+    timeout-minutes: 90
+    defaults: { run: { working-directory: cockpit } }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: "${{ inputs.ref }}", fetch-depth: 0 }
+
+      - uses: subosito/flutter-action@v2
+        with: { flutter-version: "3.47.5", channel: stable, cache: true }
+
+      - uses: mlugg/setup-zig@v2
+        with: { version: 0.16.0 }
+
+      - name: Rust targets
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-gnu
+
+      - name: pub get
+        run: flutter pub get
+
+      # Checks don't block the build (so there is always something to test),
+      # but the last step fails the run if any of them failed.
+      - name: Format (files changed vs upstream main)
+        id: fmt
+        continue-on-error: true
+        run: |
+          git fetch --no-tags https://github.com/jacobaraujo7/remote_pi.git main:upstream-main
+          FILES=$(git diff --name-only --diff-filter=AM upstream-main...HEAD -- '*.dart' | sed 's#^cockpit/##')
+          echo "$FILES"
+          [ -z "$FILES" ] && exit 0
+          dart format $FILES
+          git diff --exit-code -- .
+
+      - name: Analyze
+        id: analyze
+        continue-on-error: true
+        run: flutter analyze
+
+      - name: Tests
+        id: tests
+        continue-on-error: true
+        run: flutter test
+
+      - name: Ad-hoc signing
+        run: |
+          git checkout -- .
+          sed -i '' \
+            -e 's/CODE_SIGN_IDENTITY = "Developer ID Application";/CODE_SIGN_IDENTITY = "-";/' \
+            -e 's/DEVELOPMENT_TEAM = U843T2P7A2;/DEVELOPMENT_TEAM = "";/' \
+            macos/Runner.xcodeproj/project.pbxproj
+
+      - name: Build
+        run: flutter build macos --release
+
+      - name: Skia + re-sign
+        run: |
+          APP=build/macos/Build/Products/Release/Cockpit.app
+          /usr/libexec/PlistBuddy -c "Add :FLTEnableImpeller bool false" "$APP/Contents/Info.plist"
+          codesign -d --entitlements :- "$APP" > ent.plist 2>/dev/null || true
+          if [ -s ent.plist ]; then
+            codesign --force --deep --entitlements ent.plist --sign - "$APP"
+          else
+            codesign --force --deep --sign - "$APP"
+          fi
+          codesign --verify --deep --strict "$APP"
+
+      - name: Zip
+        run: ditto -c -k --keepParent build/macos/Build/Products/Release/Cockpit.app Cockpit-dev.zip
+
+      - uses: actions/upload-artifact@v4
+        with: { name: cockpit-dev-macos, path: cockpit/Cockpit-dev.zip }
+
+      - name: Fail the run if a check failed
+        if: steps.fmt.outcome == 'failure' || steps.analyze.outcome == 'failure' || steps.tests.outcome == 'failure'
+        run: |
+          echo "format=${{ steps.fmt.outcome }} analyze=${{ steps.analyze.outcome }} tests=${{ steps.tests.outcome }}"
+          exit 1
