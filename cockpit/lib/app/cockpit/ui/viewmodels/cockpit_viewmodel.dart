@@ -6628,6 +6628,9 @@ class CockpitViewModel extends ChangeNotifier implements DocumentHost {
         } else if (s.activeHarness == HarnessKind.codex) ...{
           'claude_sid': 'latest',
           'harness': AgentHarness.codex.wire,
+        } else if (s.activeHarness == HarnessKind.openCode) ...{
+          'claude_sid': 'latest',
+          'harness': AgentHarness.opencode.wire,
         },
       };
     }

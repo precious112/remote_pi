@@ -6,6 +6,7 @@ import 'package:cockpit/app/app_module.dart';
 import 'package:cockpit/app/app_widget.dart';
 import 'package:cockpit/app/cockpit/data/hooks/claude_hook_installer_impl.dart';
 import 'package:cockpit/app/cockpit/data/hooks/codex_hook_installer_impl.dart';
+import 'package:cockpit/app/cockpit/data/hooks/opencode_hook_installer_impl.dart';
 import 'package:cockpit/app/cockpit/data/terminal/sidecar/sidecar_terminal_connector.dart';
 import 'package:cockpit/app/cockpit/data/tasks/task_process_registry.dart';
 import 'package:cockpit/app/cockpit/domain/contracts/hook_installer.dart';
@@ -197,12 +198,14 @@ class _CockpitBootstrapperState extends State<CockpitBootstrapper> {
         // Hooks do Cockpit nos harnesses suportados (idempotente) pra sessões
         // de agente nas abas reportarem status de turno: Claude Code em
         // ~/.claude/settings.json, Codex CLI em ~/.codex/hooks.json (+ trust no
-        // config.toml). Não-fatal e independentes. Desktop-only (mobile não tem
-        // ~/.claude nem ~/.codex, plano 59).
+        // config.toml), OpenCode via plugin em ~/.config/opencode/plugins/.
+        // Não-fatal e independentes. Desktop-only (mobile não tem ~/.claude
+        // nem ~/.codex, plano 59).
         if (!isMobilePlatform) {
           for (final installer in const <HookInstaller>[
             ClaudeHookInstallerImpl(),
             CodexHookInstallerImpl(),
+            OpenCodeHookInstallerImpl(),
           ]) {
             unawaited(
               installer.ensureInstalled().then((r) {

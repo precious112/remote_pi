@@ -10,8 +10,9 @@ import 'package:cockpit/app/core/domain/result.dart';
 /// `COCKPIT_PANE_ID` que o app injeta na PTY da aba. A aba reflete no spinner /
 /// badge / chime.
 ///
-/// Implementações: `ClaudeHookInstallerImpl` (`~/.claude/settings.json`) e
-/// `CodexHookInstallerImpl` (`~/.codex/hooks.json` + trust no `config.toml`).
+/// Implementações: `ClaudeHookInstallerImpl` (`~/.claude/settings.json`),
+/// `CodexHookInstallerImpl` (`~/.codex/hooks.json` + trust no `config.toml`) e
+/// `OpenCodeHookInstallerImpl` (plugin em `~/.config/opencode/plugins/`).
 abstract class HookInstaller {
   /// Garante CLI copiada e entries presentes. Idempotente: re-rodar não duplica
   /// nem mexe em hooks de terceiros. Falha é não-fatal (logada).

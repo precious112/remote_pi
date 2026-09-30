@@ -29,7 +29,7 @@ class ClaudeStatusUpdate {
   /// Caminho do transcript `.jsonl` do agente.
   final String? transcriptPath;
 
-  /// Quem emitiu o evento: `claude` | `codex`. Vem do `--harness` que o
+  /// Quem emitiu o evento: `claude` | `codex` | `opencode`. Vem do `--harness` que o
   /// instalador grava no comando do hook; `null` em helpers antigos (que só
   /// existiam para o Claude — ver [AgentHarness.fromWire]).
   final String? harness;
@@ -41,6 +41,7 @@ class ClaudeStatusUpdate {
 enum AgentHarness {
   claude('claude'),
   codex('codex'),
+  opencode('opencode'),
   pi('pi');
 
   const AgentHarness(this.wire);
@@ -58,6 +59,10 @@ enum AgentHarness {
       sessionId == 'latest' || sessionId.isEmpty
           ? 'codex resume --last'
           : 'codex resume $sessionId',
+    AgentHarness.opencode =>
+      sessionId == 'latest' || sessionId.isEmpty
+          ? 'opencode --continue'
+          : 'opencode --session $sessionId',
     AgentHarness.pi =>
       sessionId == 'latest' || sessionId.isEmpty
           ? 'pi -c'

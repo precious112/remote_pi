@@ -9,6 +9,15 @@ void main() {
       const id = '019ff255-62c9-7ba1-8481-63c8803ef51e';
       expect(AgentHarness.claude.resumeCommand(id), 'claude --resume $id');
       expect(AgentHarness.codex.resumeCommand(id), 'codex resume $id');
+      expect(
+        AgentHarness.opencode.resumeCommand('ses_2a1b'),
+        'opencode --session ses_2a1b',
+      );
+    });
+
+    test('opencode without a session id continues the last one', () {
+      expect(AgentHarness.opencode.resumeCommand('latest'), 'opencode --continue');
+      expect(AgentHarness.opencode.resumeCommand(''), 'opencode --continue');
     });
   });
 
@@ -16,6 +25,9 @@ void main() {
     test('reconhece os nomes do wire', () {
       expect(AgentHarness.fromWire('claude'), AgentHarness.claude);
       expect(AgentHarness.fromWire('codex'), AgentHarness.codex);
+      // Regression: before this entry existed, 'opencode' fell back to claude
+      // and a restored OpenCode tab typed `claude --resume <opencode id>`.
+      expect(AgentHarness.fromWire('opencode'), AgentHarness.opencode);
     });
 
     test('ausente ou desconhecido cai em claude (compat)', () {

@@ -3,7 +3,7 @@
 Como o Cockpit sabe que um agente numa aba está trabalhando, terminou o turno ou
 precisa de uma ação do usuário (spinner, badge, chime, notificação do SO).
 
-Suportados hoje: **Claude Code** e **Codex CLI** (0.147+).
+Suportados hoje: **Claude Code**, **Codex CLI** (0.147+) e **OpenCode** (via plugin).
 
 ## Como funciona
 
@@ -26,6 +26,7 @@ controlador, e escrever em `/dev/tty` falha com `ENXIO`.
 |---|---|---|
 | Claude Code | `~/.claude/settings.json` | `hooks.<Evento>[]`, cada item `{matcher, hooks:[{type, command}]}` |
 | Codex CLI | `~/.codex/hooks.json` | mesma forma; **mais** um bloco de trust no `~/.codex/config.toml` |
+| OpenCode | `~/.config/opencode/plugins/cockpit-status.ts` | plugin próprio: o OpenCode não tem arquivo de hooks (ver [OpenCode](#opencode-plugin)) |
 
 Os dois instaladores fazem **append idempotente** de um entry marcado
 (`_cockpit: v1`): re-rodar remove o entry antigo nosso e re-adiciona, sem nunca
@@ -68,6 +69,7 @@ digita o comando que reata a conversa. **O id sozinho não diz de qual harness
 |---|---|
 | Claude Code | `claude --resume <id>` |
 | Codex CLI | `codex resume <id>` |
+| OpenCode | `opencode --session <id>` |
 
 Por isso o instalador registra o comando do hook com `--harness <nome>`
 (`cockpit hook --harness codex`), o helper carimba o payload com `hn`, e o
@@ -128,6 +130,35 @@ Referência no fonte do Codex: `codex-rs/hooks/src/engine/discovery.rs`
   capturados de uma sessão real que executou os hooks sem
   `--dangerously-bypass-hook-trust`.
 
+## OpenCode (plugin)
+
+O OpenCode não lê um arquivo de hooks: ele carrega **plugins** (JS/TS) de
+`~/.config/opencode/plugins/` ao iniciar. O `OpenCodeHookInstallerImpl` grava
+**um arquivo só, nosso** (`cockpit-status.ts`, marcado `cockpit-managed v1` e
+reescrito só quando o conteúdo muda); plugins do usuário nunca são tocados.
+
+O plugin traduz os eventos do OpenCode para os **mesmos nomes** que o Codex já
+manda e chama `cockpit hook --harness opencode` com o JSON no stdin. Por isso o
+`hook.rs` e o app não mudam:
+
+| Evento do OpenCode | Enviado como | Status |
+|---|---|---|
+| `session.status` = `busy` | `UserPromptSubmit` | `working` |
+| hook `tool.execute.before` | `PreToolUse` | `working` |
+| `permission.asked` / `permission.updated`, `question.asked` | `PermissionRequest` | `waiting` |
+| `permission.replied`, `question.replied` / `question.rejected` | `PostToolUse` | `working` |
+| `session.idle`, `session.status` = `idle`, `session.error` | `Stop` | `idle` |
+| `session.created` (sessão principal), `tui.session.select` | `SessionStart` | `idle` (leva o session-id) |
+| `session.deleted` (a da aba), `server.instance.disposed`, `global.disposed`, hook `dispose` | `SessionEnd` | `idle` |
+
+- Sessões com `parentID` (subagentes) são **ignoradas**, pela mesma razão de
+  `SubagentStart`/`SubagentStop` no Codex.
+- Fora do Cockpit (sem `COCKPIT_TAB_ID`) o plugin não faz nada.
+- Status repetido não é reenviado (um processo `cockpit hook` a menos por
+  ferramenta).
+- Se a CLI empacotada for a legada (`cockpit-hook`, sem o subcomando `hook`),
+  o instalador não grava o plugin.
+
 ## Estrutura no código
 
 ```
@@ -136,5 +167,7 @@ lib/app/cockpit/domain/contracts/hook_installer.dart
 lib/app/cockpit/data/hooks/hook_installer_base.dart      # CLI + comando (comum)
 lib/app/cockpit/data/hooks/claude_hook_installer_impl.dart
 lib/app/cockpit/data/hooks/codex_hook_installer_impl.dart
-lib/app/bootstrapper.dart                         # roda os dois no boot, não-fatal
+lib/app/cockpit/data/hooks/opencode_hook_installer_impl.dart
+lib/app/cockpit/data/hooks/opencode_plugin_source.dart    # fonte do plugin do OpenCode
+lib/app/bootstrapper.dart                         # roda os três no boot, não-fatal
 ```
