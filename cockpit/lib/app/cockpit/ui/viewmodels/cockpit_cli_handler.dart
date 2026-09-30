@@ -158,10 +158,15 @@ class CockpitCliHandler {
             'missing tabId (use --tab-id or run inside a Cockpit terminal)',
           );
         }
-        final s = _vm.session(id);
-        if (s == null) {
-          return CockpitCommandResult.fail('tab "$id" does not exist');
+        // Same resolution as read-tab/close-tab: exact tab id first, then the
+        // tab's manual label (`new-tab --title`, rename). The help promises
+        // `send` can target a tab by name; before, a label here always failed
+        // with "does not exist".
+        final resolved = _resolvePaneTarget(id);
+        if (resolved case Failure(:final error)) {
+          return CockpitCommandResult.fail(error);
         }
+        final s = (resolved as Success<PaneItem, String>).value;
         if (s is! TerminalSession) {
           return CockpitCommandResult.fail('tab "$id" is not a terminal');
         }

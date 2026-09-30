@@ -112,7 +112,9 @@ TARGET:
                   (the current tab;
                   legacy fallback $COCKPIT_PANE_ID). Ids (t0, t1…) reset on every
                   app boot → find them with `cockpit list-tabs` before targeting
-                  another tab (cross-tab).
+                  another tab (cross-tab). A tab's label (`new-tab --title`, or
+                  renamed in the app) also works and survives reboots:
+                  `cockpit send --tab-id claude --enter "…"`.
 
 KEYS (send-key):
   Enter Tab Escape Space BSpace Up Down Left Right Home End
