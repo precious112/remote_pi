@@ -85,15 +85,38 @@ fn candidate_sockets() -> Vec<String> {
     if let Some(home) = crate::util::home_dir() {
         let release = format!("{home}/.cockpit/status.sock");
         let debug = format!("{home}/.cockpit/status-debug.sock");
-        if FLAVOR == Some("debug") {
-            out.push(debug);
-            out.push(release);
+        let fallbacks = if FLAVOR == Some("debug") {
+            [debug, release]
         } else {
-            out.push(release);
-            out.push(debug);
+            [release, debug]
+        };
+        // The env path is usually one of the well-known ones: don't try (and
+        // report) the same socket twice.
+        for path in fallbacks {
+            if !out.contains(&path) {
+                out.push(path);
+            }
         }
     }
     out
+}
+
+/// The failure worth showing when no socket answered, as `"<path>: <error>"`.
+///
+/// Only the last attempt used to be reported. That is always the fallback
+/// socket of the other flavor, which normally doesn't exist, so every failure
+/// read "No such file or directory" — even when the real socket was there and
+/// the connect was refused or blocked by a sandbox ("Operation not permitted").
+/// The first error that is *not* "not found" is the one that explains what went
+/// wrong; if every path is simply missing, the first one (the tab's own socket)
+/// is reported.
+#[cfg(unix)]
+fn pick_failure(failures: &[(String, std::io::Error)]) -> Option<String> {
+    let (path, err) = failures
+        .iter()
+        .find(|(_, e)| e.kind() != std::io::ErrorKind::NotFound)
+        .or_else(|| failures.first())?;
+    Some(format!("{path}: {err}"))
 }
 
 /// Windows: `{port, tok}` que o app grava em `~/.cockpit/status[-debug].json`
@@ -136,18 +159,17 @@ fn connect() -> Result<Option<Conn>, String> {
 
     #[cfg(unix)]
     {
-        let candidates = candidate_sockets();
-        let mut last_err: Option<String> = None;
-        for path in &candidates {
+        let mut failures: Vec<(String, std::io::Error)> = Vec::new();
+        for path in candidate_sockets() {
             // Socket órfão (app fechado sem limpar) existe no disco mas recusa
             // conexão — por isso quem decide é o connect, não o exists.
-            match std::os::unix::net::UnixStream::connect(path) {
+            match std::os::unix::net::UnixStream::connect(&path) {
                 Ok(s) => return Ok(Some(Conn::Unix(s))),
-                Err(e) => last_err = Some(e.to_string()),
+                Err(e) => failures.push((path, e)),
             }
         }
         if port.is_none() {
-            return match last_err {
+            return match pick_failure(&failures) {
                 Some(e) => Err(e),
                 None => Ok(None),
             };
@@ -275,4 +297,53 @@ pub fn error_text(resp: &Value) -> String {
 /// Encerra com o erro da resposta (exit 1) — padrão dos comandos "simples".
 pub fn fail_with(resp: &Value) -> ! {
     die(&format!("cockpit: {}", error_text(resp)), 1)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::io::{Error, ErrorKind};
+
+    fn fail(path: &str, kind: ErrorKind) -> (String, Error) {
+        (path.to_string(), Error::from(kind))
+    }
+
+    #[test]
+    fn reports_the_real_error_not_the_missing_fallback() {
+        // The tab's socket exists but a sandbox blocks it; the debug fallback
+        // doesn't exist. Before, only the last ("not found") was shown.
+        let failures = vec![
+            fail("/h/.cockpit/status.sock", ErrorKind::PermissionDenied),
+            fail("/h/.cockpit/status-debug.sock", ErrorKind::NotFound),
+        ];
+        let msg = pick_failure(&failures).unwrap();
+        assert!(msg.starts_with("/h/.cockpit/status.sock: "), "{msg}");
+        assert!(!msg.contains("status-debug"), "{msg}");
+    }
+
+    #[test]
+    fn reports_a_refused_stale_socket() {
+        // App closed without cleaning up: the file is there, connect is refused.
+        let failures = vec![
+            fail("/h/.cockpit/status.sock", ErrorKind::ConnectionRefused),
+            fail("/h/.cockpit/status-debug.sock", ErrorKind::NotFound),
+        ];
+        let msg = pick_failure(&failures).unwrap();
+        assert!(msg.starts_with("/h/.cockpit/status.sock: "), "{msg}");
+    }
+
+    #[test]
+    fn all_missing_reports_the_first_path() {
+        let failures = vec![
+            fail("/h/.cockpit/status.sock", ErrorKind::NotFound),
+            fail("/h/.cockpit/status-debug.sock", ErrorKind::NotFound),
+        ];
+        let msg = pick_failure(&failures).unwrap();
+        assert!(msg.starts_with("/h/.cockpit/status.sock: "), "{msg}");
+    }
+
+    #[test]
+    fn no_attempts_means_nothing_to_report() {
+        assert_eq!(pick_failure(&[]), None);
+    }
 }
